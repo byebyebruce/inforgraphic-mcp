@@ -40,3 +40,4 @@ RUN npm run build
 ENV NODE_ENV=production
 
 ENTRYPOINT ["node", "dist/index.js"]
+#ENTRYPOINT ["node", "dist/index.js", "--http", "--url=http://localhost:3000/images", "--output=./images"]

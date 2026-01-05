@@ -6,54 +6,120 @@ MCP server for rendering infographics using [@antv/infographic](https://github.c
 
 ```bash
 npm install
-npx playwright install chromium
 npm run build
 ```
 
-## Usage
+## Quick Start
 
-### As MCP Server
+### Stdio Mode (Default)
 
-Add to your Cursor/Claude Desktop MCP configuration:
+```bash
+# Run directly
+node dist/index.js
+
+# Or with npx
+npx .
+```
+
+### HTTP Mode
+
+```bash
+node dist/index.js --http --port 3000
+```
+
+### SSE Mode
+
+```bash
+node dist/index.js --sse --port 3000
+```
+
+## Command Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--http` | Use Streamable HTTP transport | - |
+| `--sse` | Use SSE transport | - |
+| `--port <number>` | Server port (for HTTP/SSE) | 3000 |
+| `--url=<url>` | Return image URL instead of base64 | - |
+| `--output=<dir>` | Image output directory | `./images` |
+
+### URL Mode Example
+
+```bash
+# Images saved to ./images/, return URL like http://localhost:3000/images/uuid.png
+node dist/index.js --http --port 3000 --url=http://localhost:3000/images
+
+# Custom output directory
+node dist/index.js --http --port 3000 --url=http://example.com/img --output=./public/img
+```
+
+## MCP Configuration
+
+### Cursor / Claude Desktop
 
 ```json
 {
   "mcpServers": {
     "infographic": {
       "command": "node",
-      "args": ["/path/to/inforgraphic-mcp/dist/index.js"]
+      "args": ["/path/to/infographic-mcp/dist/index.js"]
     }
   }
 }
 ```
 
-Or using tsx for development:
+### With URL Mode
+
+```json
+{
+  "mcpServers": {
+    "infographic": {
+      "command": "node",
+      "args": [
+        "/path/to/infographic-mcp/dist/index.js",
+        "--http",
+        "--port", "3000",
+        "--url=http://localhost:3000/images"
+      ]
+    }
+  }
+}
+```
+
+### Using npx (after npm publish)
 
 ```json
 {
   "mcpServers": {
     "infographic": {
       "command": "npx",
-      "args": ["tsx", "/path/to/inforgraphic-mcp/src/index.ts"]
+      "args": ["infographic-mcp"]
     }
   }
 }
 ```
 
-### Tool: render_infographic
+## Tool: render_infographic
 
 Renders an infographic from DSL syntax and returns a PNG image.
 
-**Parameters:**
-- `syntax` (string, required): Infographic DSL syntax string
-- `width` (number, optional): Image width in pixels (default: 800)
-- `height` (number, optional): Image height in pixels (default: 600)
+### Parameters
 
-**Returns:** PNG image as base64
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `syntax` | string | Yes | - | Infographic DSL syntax string |
+| `width` | number | No | 800 | Image width in pixels |
+| `height` | number | No | 600 | Image height in pixels |
+| `background` | string | No | `"white"` | Background color (`"white"`, `"#f5f5f5"`, `"transparent"`) |
+
+### Returns
+
+- **Default**: PNG image as base64 (`type: "image"`)
+- **With `--url`**: Image URL as text (`type: "text"`)
 
 ## DSL Syntax
 
-The DSL uses space-separated key-value format (NOT YAML colon format):
+The DSL uses **space-separated** key-value format (NOT YAML colon format):
 
 ```
 infographic <template-name>
@@ -107,14 +173,54 @@ data
 
 See [AntV Infographic Gallery](https://infographic.antv.vision/gallery) for all templates.
 
+## Docker
+
+### Build
+
+```bash
+docker build -t infographic-mcp .
+```
+
+### Run
+
+```bash
+# Stdio mode
+docker run -i --rm infographic-mcp
+
+# HTTP mode
+docker run -p 3000:3000 --rm infographic-mcp --http --port 3000
+
+# HTTP mode with URL
+docker run -p 3000:3000 --rm infographic-mcp --http --port 3000 --url=http://localhost:3000/images
+```
+
+### MCP Config (Docker)
+
+```json
+{
+  "mcpServers": {
+    "infographic": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "infographic-mcp"]
+    }
+  }
+}
+```
+
 ## Development
 
 ```bash
+# Development mode (stdio)
+npm run dev
+
+# Development mode (HTTP)
+npm run dev:http
+
+# Development mode (SSE)
+npm run dev:sse
+
 # Run tests
 npm test
-
-# Development mode
-npm run dev
 
 # Build
 npm run build
@@ -123,4 +229,3 @@ npm run build
 ## License
 
 MIT
-

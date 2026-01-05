@@ -1,7 +1,11 @@
+.vscode
+.idea
+.DS_Store
+
 node_modules
 dist
 *.png
 .git
 .gitignore
 README.md
-
+/images

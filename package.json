@@ -14,6 +14,7 @@
     "start": "node dist/index.js",
     "start:sse": "node dist/index.js --sse",
     "start:http": "node dist/index.js --http",
+    "start:url": "tsx src/index.ts --http --url=http://localhost:3000/images --output=./images",
     "dev": "tsx src/index.ts",
     "dev:sse": "tsx src/index.ts --sse",
     "dev:http": "tsx src/index.ts --http",

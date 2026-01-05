@@ -5,8 +5,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
 import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { z } from 'zod';
 import { closeBrowser, renderInfographic } from './render.js';
+
+// Global config
+let config = {
+  baseUrl: '',      // e.g., 'http://localhost:3000/images'
+  outputDir: '',    // e.g., './images'
+};
 
 // Simple logger
 function log(level: 'info' | 'error' | 'debug', message: string, data?: object) {
@@ -62,32 +70,54 @@ Available templates include:
     },
     async ({ syntax, width, height, background }) => {
       const startTime = Date.now();
-      log('info', 'render_infographic called', { width, height, background, syntaxLength: syntax.length });
+      const uid = randomUUID();
+      log('info', 'render_infographic called', { uid, width, height, background, syntaxLength: syntax.length });
 
       try {
+        // Determine output path if URL mode is enabled
+        const outputPath = config.baseUrl && config.outputDir 
+          ? path.join(config.outputDir, `${uid}.png`)
+          : undefined;
+
         const base64 = await renderInfographic({
           syntax,
           width: width ?? 800,
           height: height ?? 600,
           background: background ?? 'white',
+          outputPath,
         });
 
         const duration = Date.now() - startTime;
-        log('info', 'render_infographic success', { duration: `${duration}ms`, imageSize: base64.length });
+        log('info', 'render_infographic success', { uid, duration: `${duration}ms`, imageSize: base64.length });
 
-        return {
-          content: [
-            {
-              type: 'image',
-              data: base64,
-              mimeType: 'image/png',
-            },
-          ],
-        };
+        // Return URL or base64 based on config
+        if (config.baseUrl && outputPath) {
+          const imageUrl = `${config.baseUrl}/${uid}.png`;
+          log('info', 'Image saved', { uid, path: outputPath, url: imageUrl });
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: imageUrl,
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: 'image',
+                data: base64,
+                mimeType: 'image/png',
+              },
+            ],
+          };
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const duration = Date.now() - startTime;
-        log('error', 'render_infographic failed', { duration: `${duration}ms`, error: message });
+        log('error', 'render_infographic failed', { uid, duration: `${duration}ms`, error: message });
 
         return {
           content: [{ type: 'text', text: `Error rendering infographic: ${message}` }],
@@ -105,13 +135,19 @@ async function startStdio() {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  log('info', 'Server started', { mode: 'stdio' });
+  log('info', 'Server started', { mode: 'stdio', baseUrl: config.baseUrl || 'disabled' });
 }
 
 // SSE transport
 async function startSSE(port: number) {
   const server = createServer();
   const app = express();
+
+  // Serve static images if URL mode is enabled
+  if (config.outputDir) {
+    app.use('/images', express.static(config.outputDir));
+    log('info', 'Static file server enabled', { path: '/images', dir: config.outputDir });
+  }
 
   app.get('/sse', async (req, res) => {
     log('info', 'SSE connection established', { ip: req.ip });
@@ -133,6 +169,12 @@ async function startSSE(port: number) {
 async function startHTTP(port: number) {
   const app = express();
   app.use(express.json());
+
+  // Serve static images if URL mode is enabled
+  if (config.outputDir) {
+    app.use('/images', express.static(config.outputDir));
+    log('info', 'Static file server enabled', { path: '/images', dir: config.outputDir });
+  }
 
   const transports: Record<string, StreamableHTTPServerTransport> = {};
 
@@ -200,13 +242,24 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let mode: 'stdio' | 'sse' | 'http' = 'stdio';
   let port = 3000;
+  let baseUrl = '';
+  let outputDir = '';
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--sse') mode = 'sse';
-    else if (args[i] === '--http') mode = 'http';
-    else if (args[i] === '--port' && args[i + 1]) port = parseInt(args[++i], 10);
+    const arg = args[i];
+    if (arg === '--sse') mode = 'sse';
+    else if (arg === '--http') mode = 'http';
+    else if (arg === '--port' && args[i + 1]) port = parseInt(args[++i], 10);
+    else if (arg.startsWith('--url=')) baseUrl = arg.substring(6);
+    else if (arg.startsWith('--output=')) outputDir = arg.substring(9);
   }
-  return { mode, port };
+
+  // Auto-set outputDir if only url is provided
+  if (baseUrl && !outputDir) {
+    outputDir = './images';
+  }
+
+  return { mode, port, baseUrl, outputDir };
 }
 
 // Graceful shutdown
@@ -223,8 +276,19 @@ process.on('SIGTERM', async () => {
 });
 
 // Main
-const { mode, port } = parseArgs();
-log('info', 'Starting server', { mode, port });
+const { mode, port, baseUrl, outputDir } = parseArgs();
+
+// Set global config
+config.baseUrl = baseUrl;
+config.outputDir = outputDir;
+
+// Create output directory if needed
+if (outputDir && !fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  log('info', 'Created output directory', { dir: outputDir });
+}
+
+log('info', 'Starting server', { mode, port, baseUrl: baseUrl || 'disabled', outputDir: outputDir || 'disabled' });
 
 switch (mode) {
   case 'stdio': startStdio(); break;
