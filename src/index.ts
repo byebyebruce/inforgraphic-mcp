@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import express from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -11,9 +11,10 @@ import { z } from 'zod';
 import { closeBrowser, renderInfographic } from './render.js';
 
 // Global config
-let config = {
+const config = {
   baseUrl: '',      // e.g., 'http://localhost:3000/images'
   outputDir: '',    // e.g., './images'
+  token: '',        // API token for authentication
 };
 
 // Simple logger
@@ -21,6 +22,32 @@ function log(level: 'info' | 'error' | 'debug', message: string, data?: object) 
   const timestamp = new Date().toISOString();
   const logData = data ? ` ${JSON.stringify(data)}` : '';
   console.log(`[${timestamp}] [${level.toUpperCase()}] ${message}${logData}`);
+}
+
+// Token authentication middleware
+function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (!config.token) {
+    // No token configured, skip auth
+    return next();
+  }
+
+  // Check Authorization header (Bearer token)
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    const [type, token] = authHeader.split(' ');
+    if (type === 'Bearer' && token === config.token) {
+      return next();
+    }
+  }
+
+  // Check query parameter
+  const queryToken = req.query.token as string;
+  if (queryToken === config.token) {
+    return next();
+  }
+
+  log('error', 'Unauthorized request', { ip: req.ip, path: req.path });
+  res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing token' });
 }
 
 // Create MCP server
@@ -143,25 +170,31 @@ async function startSSE(port: number) {
   const server = createServer();
   const app = express();
 
-  // Serve static images if URL mode is enabled
+  // Serve static images if URL mode is enabled (no auth for static files)
   if (config.outputDir) {
     app.use('/images', express.static(config.outputDir));
     log('info', 'Static file server enabled', { path: '/images', dir: config.outputDir });
   }
 
-  app.get('/sse', async (req, res) => {
+  // Apply auth middleware to SSE endpoints
+  app.get('/sse', authMiddleware, async (req, res) => {
     log('info', 'SSE connection established', { ip: req.ip });
     const transport = new SSEServerTransport('/messages', res);
     await server.connect(transport);
   });
 
-  app.post('/messages', async (req, res) => {
+  app.post('/messages', authMiddleware, async (req, res) => {
     log('debug', 'SSE message received');
     res.status(200).end();
   });
 
   app.listen(port, () => {
-    log('info', 'Server started', { mode: 'sse', port, url: `http://localhost:${port}/sse` });
+    log('info', 'Server started', { 
+      mode: 'sse', 
+      port, 
+      url: `http://localhost:${port}/sse`,
+      auth: config.token ? 'enabled' : 'disabled',
+    });
   });
 }
 
@@ -170,7 +203,7 @@ async function startHTTP(port: number) {
   const app = express();
   app.use(express.json());
 
-  // Serve static images if URL mode is enabled
+  // Serve static images if URL mode is enabled (no auth for static files)
   if (config.outputDir) {
     app.use('/images', express.static(config.outputDir));
     log('info', 'Static file server enabled', { path: '/images', dir: config.outputDir });
@@ -178,7 +211,8 @@ async function startHTTP(port: number) {
 
   const transports: Record<string, StreamableHTTPServerTransport> = {};
 
-  app.post('/mcp', async (req, res) => {
+  // Apply auth middleware to MCP endpoints
+  app.post('/mcp', authMiddleware, async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let transport: StreamableHTTPServerTransport;
 
@@ -204,7 +238,7 @@ async function startHTTP(port: number) {
     await transport.handleRequest(req, res, req.body);
   });
 
-  app.get('/mcp', async (req, res) => {
+  app.get('/mcp', authMiddleware, async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string;
     log('debug', 'GET /mcp', { sessionId });
 
@@ -217,7 +251,7 @@ async function startHTTP(port: number) {
     }
   });
 
-  app.delete('/mcp', async (req, res) => {
+  app.delete('/mcp', authMiddleware, async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string;
     log('info', 'Session closing', { sessionId });
 
@@ -233,7 +267,12 @@ async function startHTTP(port: number) {
   });
 
   app.listen(port, () => {
-    log('info', 'Server started', { mode: 'http', port, url: `http://localhost:${port}/mcp` });
+    log('info', 'Server started', { 
+      mode: 'http', 
+      port, 
+      url: `http://localhost:${port}/mcp`,
+      auth: config.token ? 'enabled' : 'disabled',
+    });
   });
 }
 
@@ -244,6 +283,7 @@ function parseArgs() {
   let port = 3000;
   let baseUrl = '';
   let outputDir = '';
+  let token = '';
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -252,6 +292,7 @@ function parseArgs() {
     else if (arg === '--port' && args[i + 1]) port = parseInt(args[++i], 10);
     else if (arg.startsWith('--url=')) baseUrl = arg.substring(6);
     else if (arg.startsWith('--output=')) outputDir = arg.substring(9);
+    else if (arg.startsWith('--token=')) token = arg.substring(8);
   }
 
   // Auto-set outputDir if only url is provided
@@ -259,7 +300,7 @@ function parseArgs() {
     outputDir = './images';
   }
 
-  return { mode, port, baseUrl, outputDir };
+  return { mode, port, baseUrl, outputDir, token };
 }
 
 // Graceful shutdown
@@ -276,11 +317,12 @@ process.on('SIGTERM', async () => {
 });
 
 // Main
-const { mode, port, baseUrl, outputDir } = parseArgs();
+const { mode, port, baseUrl, outputDir, token } = parseArgs();
 
 // Set global config
 config.baseUrl = baseUrl;
 config.outputDir = outputDir;
+config.token = token;
 
 // Create output directory if needed
 if (outputDir && !fs.existsSync(outputDir)) {
@@ -288,7 +330,13 @@ if (outputDir && !fs.existsSync(outputDir)) {
   log('info', 'Created output directory', { dir: outputDir });
 }
 
-log('info', 'Starting server', { mode, port, baseUrl: baseUrl || 'disabled', outputDir: outputDir || 'disabled' });
+log('info', 'Starting server', { 
+  mode, 
+  port, 
+  baseUrl: baseUrl || 'disabled', 
+  outputDir: outputDir || 'disabled',
+  auth: token ? 'enabled' : 'disabled',
+});
 
 switch (mode) {
   case 'stdio': startStdio(); break;

@@ -42,6 +42,7 @@ node dist/index.js --sse --port 3000
 | `--port <number>` | Server port (for HTTP/SSE) | 3000 |
 | `--url=<url>` | Return image URL instead of base64 | - |
 | `--output=<dir>` | Image output directory | `./images` |
+| `--token=<token>` | API token for authentication | - |
 
 ### URL Mode Example
 
@@ -52,6 +53,28 @@ node dist/index.js --http --port 3000 --url=http://localhost:3000/images
 # Custom output directory
 node dist/index.js --http --port 3000 --url=http://example.com/img --output=./public/img
 ```
+
+### Authentication
+
+```bash
+# Enable token authentication
+node dist/index.js --http --port 3000 --token=my-secret-token
+```
+
+**Request with token:**
+
+```bash
+# Via Authorization header (recommended)
+curl -X POST http://localhost:3000/mcp \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0",...}'
+
+# Via query parameter
+curl "http://localhost:3000/sse?token=my-secret-token"
+```
+
+> Note: Static image files (`/images/*`) are served without authentication.
 
 ## MCP Configuration
 
