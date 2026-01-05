@@ -2,6 +2,11 @@
 
 MCP server for rendering infographics using [@antv/infographic](https://github.com/antvis/infographic).
 
+## Usage Preview
+![](doc/mcp_config.png)
+![](doc/agent_prompt.png)
+![](doc/chat.png)
+
 ## Installation
 
 ```bash
