@@ -1,0 +1,13 @@
+services:
+  infographic-mcp:
+    container_name: infographic-mcp
+    image: infographic-mcp
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    volumes:
+      - ./images:/app/images
+    command: ["--http", "--url=http://localhost:3000/images", "--output=./images"]  

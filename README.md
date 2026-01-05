@@ -202,6 +202,10 @@ data
 See [AntV Infographic Gallery](https://infographic.antv.vision/gallery) for all templates.
 
 ## Docker
+### Docker Compose
+```bash
+docker-compose up -d
+```
 
 ### Build
 
